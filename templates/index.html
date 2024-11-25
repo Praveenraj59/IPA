@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stock Portfolio Analysis</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+        .card {
+            margin-top: 20px;
+        }
+        .alert {
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1 class="text-center">Stock Portfolio Analysis</h1>
+    <form id="stock-form">
+        <div class="mb-3">
+            <label for="investment_amount" class="form-label">Enter Total Investment Amount (₹):</label>
+            <input type="number" class="form-control" id="investment_amount" placeholder="Enter amount (e.g., 100000)" required />
+        </div>
+        <div class="mb-3">
+            <label for="stock-table" class="form-label">Enter Stock Details:</label>
+            <table class="table table-bordered" id="stock-table">
+                <thead>
+                    <tr>
+                        <th>Stock Name</th>
+                        <th>Current Investment (₹)</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><input type="text" class="form-control" placeholder="e.g., AAPL" required /></td>
+                        <td><input type="number" class="form-control" placeholder="e.g., 50000" required /></td>
+                        <td>
+                            <button type="button" class="btn btn-danger remove-row">Remove</button>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+            <button type="button" class="btn btn-secondary" id="add-row">Add Row</button>
+        </div>
+        <button type="submit" class="btn btn-primary">Analyze Portfolio</button>
+    </form>
+    <div id="results-section" style="display:none;">
+        <h3>Predictions</h3>
+        <p><strong>Random Forest Portfolio Prediction:</strong> <span id="rf_prediction"></span></p>
+        <h4>Stock-Specific Predictions</h4>
+        <ul id="stock_predictions"></ul>
+        <h3>Prediction Visualization</h3>
+        <img id="prediction_plot" src="" alt="Prediction Plot" class="img-fluid" />
+        <div class="card">
+            <div class="card-body">
+                <h4 class="card-title">Investment Insights</h4>
+                <div class="alert alert-info" id="insights"></div>
+                <h4 class="card-title">Stock Recommendations</h4>
+                <ul id="stock_advice" class="list-group"></ul>
+                <h4 class="card-title">Recommended Investment Allocation</h4>
+                <ul id="investment_allocation" class="list-group"></ul>
+            </div>
+        </div>
+    </div>
+</div>
+<div style="margin-top: 20px;">
+    <a href="/evaluation" class="btn btn-info">View Model Evaluation</a>
+</div>
+
+<script>
+    // Add row to stock table
+    document.getElementById('add-row').addEventListener('click', function() {
+        const table = document.getElementById('stock-table').getElementsByTagName('tbody')[0];
+        const newRow = table.insertRow();
+        newRow.innerHTML = `
+            <td><input type="text" class="form-control" placeholder="e.g., TSLA" required /></td>
+            <td><input type="number" class="form-control" placeholder="e.g., 30000" required /></td>
+            <td><button type="button" class="btn btn-danger remove-row">Remove</button></td>
+        `;
+    });
+
+    // Remove row from stock table
+    document.getElementById('stock-table').addEventListener('click', function(event) {
+        if (event.target.classList.contains('remove-row')) {
+            const row = event.target.closest('tr');
+            row.parentNode.removeChild(row);
+        }
+    });
+
+    // Submit form
+    document.getElementById('stock-form').addEventListener('submit', function(e) {
+        e.preventDefault();
+
+        // Get total investment amount
+        const investmentAmount = parseFloat(document.getElementById('investment_amount').value);
+
+        // Get stock data from table
+        const tableRows = document.querySelectorAll('#stock-table tbody tr');
+        const stocksData = [];
+        tableRows.forEach(row => {
+            const stockName = row.cells[0].querySelector('input').value;
+            const currentInvestment = parseFloat(row.cells[1].querySelector('input').value);
+            if (stockName && !isNaN(currentInvestment)) {
+                stocksData.push({ name: stockName, amount: currentInvestment });
+            }
+        });
+
+        // Send data to Flask backend
+        fetch('/predict', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ stocks: stocksData, investment_amount: investmentAmount })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                alert(`Error: ${data.error}`);
+            } else {
+                console.log("Received Data:", data);
+
+                // Display the Random Forest prediction
+                document.getElementById('rf_prediction').textContent = `₹${data.rf_prediction.toFixed(2)}`;
+
+                // Display stock-specific predictions
+                const stockList = document.getElementById('stock_predictions');
+                stockList.innerHTML = '';
+                data.matched_predictions.forEach(stock => {
+                    const li = document.createElement('li');
+                    li.textContent = `${stock.stock}: Predicted Return ₹${stock.predicted_return.toFixed(2)}`;
+                    stockList.appendChild(li);
+                });
+
+                // Display the prediction plot
+                document.getElementById('prediction_plot').src = 'data:image/png;base64,' + data.plot_url;
+
+                // Display investment insights
+                document.getElementById('insights').textContent = data.insights;
+
+                // Display stock-specific advice
+                const stockAdviceList = document.getElementById('stock_advice');
+                stockAdviceList.innerHTML = '';
+                data.stock_advice.forEach(advice => {
+                    const li = document.createElement('li');
+                    li.className = "list-group-item";
+                    li.textContent = advice;
+                    stockAdviceList.appendChild(li);
+                });
+
+                // Display recommended investment allocation
+                const allocationList = document.getElementById('investment_allocation');
+                allocationList.innerHTML = '';
+                for (const [stock, amount] of Object.entries(data.allocation)) {
+                    const li = document.createElement('li');
+                    li.className = "list-group-item";
+                    li.textContent = `${stock}: ₹${amount.toFixed(2)}`;
+                    allocationList.appendChild(li);
+                }
+
+                // Show the results section
+                document.getElementById('results-section').style.display = 'block';
+            }
+        })
+        .catch(error => {
+            console.error("Error Fetching Data:", error);
+            alert("An error occurred while processing your request.");
+        });
+    });
+</script>
+</body>
+</html>
